@@ -3,7 +3,9 @@
 #include <string.h>
 #include <microhttpd.h>
 
+/* cipher backends */
 #include "internals/cyphers/rabin.h"
+#include "internals/cyphers/rsa.h"
 
 #define PORT_DEFAULT 8080
 
@@ -17,14 +19,44 @@ static int handle_request(
     size_t *upload_data_size,
     void **con_cls
 ) {
-    (void)cls; (void)version; (void)upload_data;
-    (void)upload_data_size; (void)con_cls;
+    (void)cls;
+    (void)version;
+    (void)upload_data;
+    (void)upload_data_size;
+    (void)con_cls;
 
     if (strcmp(method, "GET") != 0) {
         return MHD_NO;
     }
 
-    if (strcmp(url, "/rabin") != 0) {
+    /* query parameters */
+    const char *alph   = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "alph");
+    const char *cipher = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "cipher");
+    const char *frag   = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "frag");
+
+    if (!frag) {
+        const char *msg = "ERROR: missing frag\n";
+        struct MHD_Response *res =
+            MHD_create_response_from_buffer(
+                strlen(msg),
+                (void*)msg,
+                MHD_RESPMEM_PERSISTENT
+            );
+        int ret = MHD_queue_response(connection, 400, res);
+        MHD_destroy_response(res);
+        return ret;
+    }
+
+    const char *result = NULL;
+
+    /* ROUTING */
+    if (strcmp(url, "/rabin") == 0) {
+        result = rabinEntry(alph, cipher, frag);
+    }
+    else if (strcmp(url, "/rsa") == 0) {
+        result = rsaEntry(alph, cipher, frag);
+    }
+    else {
         const char *msg = "404 Not Found\n";
         struct MHD_Response *res =
             MHD_create_response_from_buffer(
@@ -37,24 +69,9 @@ static int handle_request(
         return ret;
     }
 
-    const char *alph   = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "alph");
-    const char *cipher = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "cipher");
-    const char *frag   = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "frag");
-
-    if (!cipher || !frag) {
-        const char *msg = "ERROR: missing cipher or frag\n";
-        struct MHD_Response *res =
-            MHD_create_response_from_buffer(
-                strlen(msg),
-                (void*)msg,
-                MHD_RESPMEM_PERSISTENT
-            );
-        int ret = MHD_queue_response(connection, 400, res);
-        MHD_destroy_response(res);
-        return ret;
+    if (!result) {
+        result = "ERROR: internal failure\n";
     }
-
-    const char *result = rabinEntry(alph, cipher, frag);
 
     struct MHD_Response *response =
         MHD_create_response_from_buffer(
@@ -68,13 +85,18 @@ static int handle_request(
 
     int ret = MHD_queue_response(connection, 200, response);
     MHD_destroy_response(response);
-    free((void*)result);
+
+    /* IMPORTANT:
+       DO NOT free(result)
+       Rabin/RSA manage their own internal buffers
+    */
 
     return ret;
 }
 
 int main(int argc, char **argv) {
     int port = PORT_DEFAULT;
+
     if (argc > 1) {
         port = atoi(argv[1]);
         if (port <= 0) port = PORT_DEFAULT;
@@ -95,9 +117,14 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    printf("Sabaton server running on http://localhost:%d\n", port);
-    printf("Endpoint: /rabin\n");
-    printf("Press ENTER to stop.\n");
+    printf("=====================================\n");
+    printf(" Sabaton Crypto HTTP Server\n");
+    printf("=====================================\n");
+    printf("Running on: http://localhost:%d\n", port);
+    printf("Endpoints:\n");
+    printf("  GET /rabin\n");
+    printf("  GET /rsa\n");
+    printf("\nPress ENTER to stop.\n");
 
     getchar();
 
