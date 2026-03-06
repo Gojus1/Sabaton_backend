@@ -4,7 +4,11 @@
 #include <microhttpd.h>
 
 #include "internals/cyphers/rabin.h"
+#include "internals/cyphers/rsa.h"
 #include "internals/cyphers/enigma.h"
+#include "internals/cyphers/shamir.h"
+#include "internals/cyphers/feistel.h"
+#include "internals/cyphers/stream.h"
 
 #define PORT 8080
 
@@ -42,11 +46,8 @@ static int handle_request(
     size_t *upload_data_size,
     void **con_cls)
 {
-    (void)cls;
-    (void)version;
-    (void)upload_data;
-    (void)upload_data_size;
-    (void)con_cls;
+    (void)cls; (void)version; (void)upload_data;
+    (void)upload_data_size; (void)con_cls;
 
     if(strcmp(method,"GET")!=0)
         return MHD_NO;
@@ -64,19 +65,22 @@ static int handle_request(
 
     const char *result = NULL;
 
+    /* -------- ROUTING -------- */
     if(strcmp(url,"/rabin")==0)
-    {
         result = rabinEntry(alph_c,cipher_c,frag_c);
-    }
+    else if(strcmp(url,"/rsa")==0)
+        result = rsaEntry(alph_c,cipher_c,frag_c);
     else if(strcmp(url,"/enigma")==0)
-    {
         result = enigmaEntry(alph_c,cipher_c,frag_c);
-    }
+    else if(strcmp(url,"/shamir")==0)
+        result = shamirEntryMem(alph_c,cipher_c,frag_c);
+    else if(strcmp(url,"/stream")==0)
+        result = streamEntry(alph_c,cipher_c,frag_c);
+    // else if(strcmp(url,"/feistel")==0)
+    //     result = feistelEntry(cipher_c, frag_c, 0); // flag=0 for now
     else
     {
-        free(alph_c);
-        free(cipher_c);
-        free(frag_c);
+        free(alph_c); free(cipher_c); free(frag_c);
         return send_response(connection,"404 Not Found\n");
     }
 
@@ -110,13 +114,9 @@ int main()
     }
 
     printf("Server running at http://localhost:%d\n",PORT);
-    printf("Endpoints:\n");
-    printf("  /rabin\n");
-    printf("  /enigma\n");
-    printf("\nPress ENTER to stop.\n");
+    printf("Endpoints:\n  /rabin\n  /rsa\n  /enigma\n  /shamir\n\nPress ENTER to stop.\n");
 
     getchar();
-
     MHD_stop_daemon(daemon);
     return 0;
 }

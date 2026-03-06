@@ -114,7 +114,6 @@ static void write_candidate(FILE* f, uint8_t taps, uint8_t state, int variant_id
 }
 
 const char* streamEntry(const char* alph, const char* encText, const char* frag) {
-    (void)alph;
     if (!encText) return strdup("[no input]");
     if (!frag || !*frag) return strdup("[no frag provided]");
 
@@ -124,6 +123,7 @@ const char* streamEntry(const char* alph, const char* encText, const char* frag)
         if (cbytes) free(cbytes);
         return strdup("[invalid ciphertext format]");
     }
+
     const char* s = frag;
     if (strncmp(s, "lfsr:", 6) == 0) s += 6;
     char tmp[128];
@@ -141,155 +141,46 @@ const char* streamEntry(const char* alph, const char* encText, const char* frag)
         return strdup("[unsupported LFSR size; only 8 supported]");
     }
 
-    int sem_count = 0;
-    for (const char* p = frag; *p; ++p) if (*p == ';') ++sem_count;
+    const char* known_prefix = (tok2 && *tok2 && strcmp(tok2, "brute") != 0) ? tok2 : NULL;
+    const char* allowed_alph = (alph && *alph) ? alph : "ABCDEFGHIJKLMNOPQRSTUVWXYZ ";
 
-    if (sem_count >= 2) {
-        const char* firstsemi = strchr(frag, ';');
-        if (!firstsemi) {
-            free(cbytes);
-            return strdup("[invalid frag]");
-        }
-        char tail[128];
-        strncpy(tail, firstsemi + 1, sizeof(tail)-1); tail[sizeof(tail)-1] = '\0';
-        char* part1 = strtok(tail, ";");
-        char* part2 = strtok(NULL, ";");
-        if (!part1 || !part2) {
-            free(cbytes);
-            return strdup("[invalid taps/state]");
-        }
-        int taps = parse_int_token(part1);
-        int state = parse_int_token(part2);
-        if (taps < 0 || state < 0) {
-            free(cbytes);
-            return strdup("[invalid taps/state]");
-        }
+    static char* result_out = NULL;
+    if (result_out) { free(result_out); result_out = NULL; }
 
-        const char* allowed_alph = (alph && *alph) ? alph : "ABCDEFGHIJKLMNOPQRSTUVWXYZ ";
-        char* chosen = NULL;
-        for (int rev = 0; rev <= 1 && !chosen; ++rev) {
+    char* found_any = NULL;
+
+    // brute-force all variants (no file)
+    for (int taps = 1; taps < 256 && !found_any; ++taps) {
+        for (int rev = 0; rev <= 1 && !found_any; ++rev) {
             uint8_t taps_used = rev ? reverse_bits8((uint8_t)taps) : (uint8_t)taps;
-            for (int shift_right = 0; shift_right <= 1 && !chosen; ++shift_right) {
-                for (int msb_first = 0; msb_first <= 1 && !chosen; ++msb_first) {
-                    char* dec = decrypt_with_variant(cbytes, bigN, taps_used, (uint8_t)state,
-                                                    shift_right, msb_first, allowed_alph);
-                    if (!dec) continue;
-                    int ok = 1;
-                    for (int i = 0; i < bigN; ++i) {
-                        if (dec[i] == '?') {
-                            ok = 0;
-                            break;
+            for (int state = 1; state < 256 && !found_any; ++state) {
+                for (int shift_right = 0; shift_right <= 1 && !found_any; ++shift_right) {
+                    for (int msb_first = 0; msb_first <= 1 && !found_any; ++msb_first) {
+                        char* dec = decrypt_with_variant(cbytes, bigN, taps_used, (uint8_t)state,
+                                                         shift_right, msb_first, allowed_alph);
+                        if (!dec) continue;
+
+                        int ok = 1;
+                        for (int i = 0; i < bigN; ++i) {
+                            if (dec[i] == '?') { ok = 0; break; }
                         }
-                    }
-                    if (ok) chosen = dec;
-                    else free(dec);
-                }
-            }
-        }
-        free(cbytes);
-        if (!chosen) return strdup("[decryption failed or no variant produced fully valid plaintext]");
-        static char* static_out = NULL;
-        if (static_out) {
-            free(static_out);
-            static_out = NULL;
-        }
-        static_out = strdup(chosen);
-        free(chosen);
-        return static_out;
-    } else {
 
-        const char* known_prefix = NULL;
-        if (tok2 && *tok2 && strcmp(tok2, "brute") != 0) known_prefix = tok2;
-
-        static char fname[128];
-        const char* base = "stream_lfsr-";
-        int p = 0;
-        while (base[p] && p < (int)sizeof(fname)-1) {
-            fname[p] = base[p];
-            ++p;
-        }
-        fname[p] = '\0';
-        if (!append_time_txt(fname, (int)sizeof fname)) {
-            const char* fb = "unknown.txt";
-            int i = 0;
-            while (fb[i] && p + i < (int)sizeof(fname)-1) {
-                fname[p+i] = fb[i];
-                ++i;
-            }
-            fname[p+i] = '\0';
-        }
-        FILE* f = fopen(fname, "wb");
-        if (!f) {
-            free(cbytes);
-            return strdup("[error opening output file]");
-        }
-
-        const char* allowed_alph = (alph && *alph) ? alph : "ABCDEFGHIJKLMNOPQRSTUVWXYZ ";
-
-        int found_any = 0;
-        for (int taps = 1; taps < 256; ++taps) {
-            for (int rev = 0; rev <= 1; ++rev) {
-                uint8_t taps_used = rev ? reverse_bits8((uint8_t)taps) : (uint8_t)taps;
-                for (int state = 1; state < 256; ++state) {
-                    for (int shift_right = 0; shift_right <= 1; ++shift_right) {
-                        for (int msb_first = 0; msb_first <= 1; ++msb_first) {
-                            int variant_id = (rev<<2) | (msb_first<<1) | (shift_right<<0);
-                            char* dec = decrypt_with_variant(cbytes, bigN, taps_used, (uint8_t)state,
-                                                             shift_right, msb_first, allowed_alph);
-                            if (!dec) continue;
-                            if (known_prefix) {
-                                int okpref = 1;
-                                size_t klen = strlen(known_prefix);
-                                if ((int)klen > bigN) okpref = 0;
-                                else {
-                                    for (size_t z = 0; z < klen; ++z) {
-                                        if (dec[z] != known_prefix[z]) {
-                                            okpref = 0;
-                                            break;
-                                        }
-                                    }
-                                }
-                                if (okpref) {
-                                    int ok = 1;
-                                    for (int i = 0; i < bigN; ++i) {
-                                        if (dec[i] == '?') {
-                                            ok = 0;
-                                            break;
-                                        }
-                                    }
-                                    if (ok) {
-                                        write_candidate(f, (uint8_t)taps_used, (uint8_t)state, variant_id, dec);
-                                        found_any = 1;
-                                    }
-                                }
-                            } else {
-                                int ok = 1;
-                                for (int i = 0; i < bigN; ++i) {
-                                    if (dec[i] == '?') {
-                                        ok = 0;
-                                        break;
-                                    }
-                                }
-                                if (ok) {
-                                    write_candidate(f, (uint8_t)taps_used, (uint8_t)state, variant_id, dec);
-                                    found_any = 1;
-                                }
-                            }
+                        if (ok && (!known_prefix || 
+                                   (strncmp(dec, known_prefix, strlen(known_prefix)) == 0))) {
+                            found_any = dec; // keep pointer
+                        } else {
                             free(dec);
                         }
                     }
                 }
             }
         }
-        fclose(f);
-        free(cbytes);
-        if (!found_any) return strdup("[no candidate found]");
-        static char* static_fname = NULL;
-        if (static_fname) {
-            free(static_fname);
-            static_fname = NULL;
-        }
-        static_fname = strdup(fname);
-        return static_fname;
     }
+
+    free(cbytes);
+    if (!found_any) return strdup("[no candidate found]");
+
+    result_out = strdup(found_any);
+    free(found_any);
+    return result_out;
 }

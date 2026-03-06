@@ -86,13 +86,53 @@ void decode_backtrack(
     }
 }
 
-const char* shamirEntry(const char* alph_str,
-                        const char* encText,
-                        const char* frag) {
-    (void)encText;
+static void decode_backtrack_mem(
+    const char* num,
+    size_t num_len,
+    size_t pos,
+    const char* alph[],
+    size_t alph_len,
+    char* out,
+    size_t out_pos,
+    char** results,
+    size_t* result_count,
+    size_t max_results
+) {
+    if (pos == num_len) {
+        out[out_pos] = '\0';
+        if (*result_count < max_results) {
+            results[*result_count] = strdup(out);
+            (*result_count)++;
+        }
+        return;
+    }
 
-    if (!alph_str || !*alph_str)
-        return "[no alph]";
+    if (num[pos] == '0') {
+        decode_backtrack_mem(num, num_len, pos + 1, alph, alph_len, out, out_pos, results, result_count, max_results);
+        return;
+    }
+
+    for (int digits = 1; digits <= 2; ++digits) {
+        if (pos + digits > num_len) continue;
+        int value = 0;
+        for (int i = 0; i < digits; ++i)
+            value = value * 10 + (num[pos + i] - '0');
+
+        if (value >= 1 && value <= (int)alph_len) {
+            const char* ch = alph[value - 1];
+            size_t l = strlen(ch);
+            memcpy(out + out_pos, ch, l);
+            decode_backtrack_mem(num, num_len, pos + digits, alph, alph_len, out, out_pos + l, results, result_count, max_results);
+        }
+    }
+}
+
+const char* shamirEntryMem(const char* alph_str,
+                           const char* encText,
+                           const char* frag)
+{
+    (void)encText;
+    if (!alph_str || !*alph_str) return "[no alph]";
 
     const char* alph[64];
     size_t alph_len = 0;
@@ -112,9 +152,7 @@ const char* shamirEntry(const char* alph_str,
         p += bytes;
     }
 
-    uint32_t p_val;
-    uint32_t x[3];
-    uint32_t s[3];
+    uint32_t p_val = 0, x[3] = {0}, s[3] = {0};
 
     if (frag && frag[0]) {
         char* copy = strdup(frag);
@@ -137,25 +175,27 @@ const char* shamirEntry(const char* alph_str,
     }
 
     uint32_t secret = shamir_recover_secret(p_val, x, s, 3);
-    printf("Recovered secret: %u\n", secret);
 
     char numbuf[32];
     snprintf(numbuf, sizeof numbuf, "%u", secret);
 
-    static char fname[128];
-    strcpy(fname, "shamir-");
-    if (!append_time_txt(fname, (int)sizeof fname))
-        strcat(fname, "unknown.txt");
-
-    FILE* fptr = fopen(fname, "wb");
-    if (!fptr) return "[file error]";
-
+    // Allocate space for up to 1000 results
+    char* results[1000];
+    size_t result_count = 0;
     char outbuf[512];
-    decode_backtrack(numbuf, strlen(numbuf), 0, alph, alph_len, outbuf, 0, fptr);
 
-    fclose(fptr);
+    decode_backtrack_mem(numbuf, strlen(numbuf), 0, alph, alph_len, outbuf, 0, results, &result_count, 1000);
+
+    // Join all results into one string
+    static char final[8192];
+    final[0] = '\0';
+    for (size_t i = 0; i < result_count; ++i) {
+        strcat(final, results[i]);
+        if (i + 1 < result_count) strcat(final, "\n");
+        free(results[i]);
+    }
 
     for (size_t i = 0; i < alph_len; ++i) free((void*)alph[i]);
 
-    return fname;
+    return final;
 }

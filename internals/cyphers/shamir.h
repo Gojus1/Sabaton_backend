@@ -10,5 +10,5 @@
 #include "../../util/bigint.h"
 
 
-const char* shamirEntry(const char* alph, const char* encText, const char* frag);
+const char* shamirEntryMem(const char* alph, const char* encText, const char* frag);
 
