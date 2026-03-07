@@ -56,8 +56,12 @@ void __sqrt(BigInt *out, const BigInt *c, const BigInt *p) {
     biDivU32(&exp, &tmp, 4);
 
     biPowMod(out, &cmod, &exp, p);
-}
 
+    biClear(&one);
+    biClear(&exp);
+    biClear(&tmp);
+    biClear(&cmod);
+}
 
 int decrypt_roots(
     const BigInt *c,
@@ -65,15 +69,13 @@ int decrypt_roots(
     const BigInt *q,
     BigInt roots[4]
 ) {
-    BigInt mp, mq;
+    BigInt mp, mq, yp, yq, n;
     __sqrt(&mp, c, p);
     __sqrt(&mq, c, q);
 
-    BigInt yp, yq;
-    if (!biModInv(&yp, p, q)) return 0;
-    if (!biModInv(&yq, q, p)) return 0;
+    if (!biModInv(&yp, p, q)) { biClear(&mp); biClear(&mq); return 0; }
+    if (!biModInv(&yq, q, p)) { biClear(&mp); biClear(&mq); biClear(&yp); return 0; }
 
-    BigInt n;
     biMul(&n, p, q);
 
     int idx = 0;
@@ -83,11 +85,9 @@ int decrypt_roots(
         else biSub(&rp, p, &mp);
 
         for (int sq = 0; sq < 2; sq++) {
-            BigInt rq;
+            BigInt rq, t1, t2, sum, res;
             if (sq == 0) biCopy(&rq, &mq);
             else biSub(&rq, q, &mq);
-
-            BigInt t1, t2, sum, res;
 
             biMul(&t1, &rp, q);
             biMul(&t1, &t1, &yq);
@@ -96,28 +96,25 @@ int decrypt_roots(
             biAdd(&sum, &t1, &t2);
             biMod(&res, &sum, &n);
             biCopy(&roots[idx++], &res);
+
+            biClear(&rq); biClear(&t1); biClear(&t2); biClear(&sum); biClear(&res);
         }
+        biClear(&rp);
     }
+
+    biClear(&mp); biClear(&mq); biClear(&yp); biClear(&yq); biClear(&n);
+
     return 4;
 }
 
-const char* rabinEntry(const char* alph,
-                       const char* encText,
-                       const char* frag)
+char* rabinEntry(const char* alph,
+                 const char* encText,
+                 const char* frag)
 {
-    (void)alph;
-    (void)encText;
-
-    static char *out = NULL;
-    if (out) {
-        free(out);
-        out = NULL;
-    }
-
-    if (!frag) return "ERROR: missing fragment";
+    if (!frag || !*frag) return strdup("ERROR: missing fragment");
 
     char *tmp = strdup(frag);
-    if (!tmp) return "ERROR: out of memory";
+    if (!tmp) return strdup("ERROR: out of memory");
 
     char *c_str = strtok(tmp, "|");
     char *p_str = strtok(NULL, "|");
@@ -125,7 +122,7 @@ const char* rabinEntry(const char* alph,
 
     if (!c_str || !p_str || !q_str) {
         free(tmp);
-        return "ERROR: expected frag = c|p|q";
+        return strdup("ERROR: expected frag = c|p|q");
     }
 
     BigInt c, p, q;
@@ -136,16 +133,15 @@ const char* rabinEntry(const char* alph,
     BigInt roots[4];
     int cnt = decrypt_roots(&c, &p, &q, roots);
 
+    biClear(&c); biClear(&p); biClear(&q);
+
     if (cnt <= 0) {
         free(tmp);
-        return "ERROR: Rabin decryption failed";
+        return strdup("ERROR: Rabin decryption failed");
     }
 
-    out = malloc(2048);
-    if (!out) {
-        free(tmp);
-        return "ERROR: out of memory";
-    }
+    char *out = malloc(2048);
+    if (!out) { free(tmp); return strdup("ERROR: out of memory"); }
     out[0] = '\0';
 
     for (int i = 0; i < cnt; i++) {
@@ -157,13 +153,14 @@ const char* rabinEntry(const char* alph,
 
         char line[1024];
         snprintf(line, sizeof(line),
-                "Root %d = %s\nText   = %s\n\n",
-                i + 1, numbuf, text);
+                 "Root %d = %s\nText   = %s\n\n",
+                 i + 1, numbuf, text);
 
         strcat(out, line);
         free(text);
-    }
 
+        biClear(&roots[i]);
+    }
 
     free(tmp);
     return out;

@@ -75,17 +75,14 @@ char* runReflectorEnigma(const char* text, const char* alph,
 
 
 const char* enigmaEntry(const char* alph, const char* encText, const char* frag) {
-    static char* output = NULL;
-    if (output) {
-        free(output);
-        output = NULL;
-    }
+    char* output = NULL;  // no static anymore
 
     int rotor1[256], rotor2[256], reflector[256];
     int r1Count = 0, r2Count = 0, refCount = 0;
     int key[2] = { -1, -1 };
     char* plainFrag = NULL;
 
+    // parse frag
     char* copy = strdup(frag);
     char* part = strtok(copy, "|");
     while (part) {
@@ -117,53 +114,38 @@ const char* enigmaEntry(const char* alph, const char* encText, const char* frag)
     invertVector(rotor1, inv1, (int)N);
     invertVector(rotor2, inv2, (int)N);
 
-    int p1Start = (key[0] == -1 ? 0 : key[0]);
-    int p1End   = (key[0] == -1 ? (int)N : key[0] + 1);
-    int p2Start = (key[1] == -1 ? 0 : key[1]);
-    int p2End   = (key[1] == -1 ? (int)N : key[1] + 1);
-
-
     if (key[0] != -1 && key[1] != -1) {
-        char* cand;
-        if (refCount>0)
-            cand = runReflectorEnigma(encText, alph, rotor1, rotor2, key[0], key[1], reflector);
-        else
-            cand = runSimpleEnigma(encText, alph, inv1, inv2, key[0], key[1], 1);
-
+        char* cand = (refCount > 0) 
+                        ? runReflectorEnigma(encText, alph, rotor1, rotor2, key[0], key[1], reflector)
+                        : runSimpleEnigma(encText, alph, inv1, inv2, key[0], key[1], 1);
         printf("[key %d,%d] %s\n", key[0], key[1], cand);
-        if (!output) output = strdup(cand);
+        output = strdup(cand);
         free(cand);
-    }
-    else {
-        for (int p1 = 0; p1 < (key[0]==-1 ? (int)N : 1); p1++) {
-            for (int p2 = 0; p2 < (key[1]==-1 ? (int)N : 1); p2++) {
-                int pos1 = (key[0]==-1 ? p1 : key[0]);
-                int pos2 = (key[1]==-1 ? p2 : key[1]);
-                char* cand;
-                if (refCount>0)
-                    cand = runReflectorEnigma(encText, alph, rotor1, rotor2, pos1, pos2, reflector);
-                else
-                    cand = runSimpleEnigma(encText, alph, inv1, inv2, pos1, pos2, 1);
+    } else {
+        for (int p1 = 0; p1 < (key[0] == -1 ? (int)N : 1); p1++) {
+            for (int p2 = 0; p2 < (key[1] == -1 ? (int)N : 1); p2++) {
+                int pos1 = (key[0] == -1 ? p1 : key[0]);
+                int pos2 = (key[1] == -1 ? p2 : key[1]);
+                char* cand = (refCount > 0) 
+                                ? runReflectorEnigma(encText, alph, rotor1, rotor2, pos1, pos2, reflector)
+                                : runSimpleEnigma(encText, alph, inv1, inv2, pos1, pos2, 1);
 
                 int ok = 1;
                 if (plainFrag) {
-                    if (strlen(plainFrag)==1) {
-                        char first=0;
-                        for (size_t i=0; cand[i]; i++) {
-                            if (strchr(alph, cand[i])) {
-                                first = cand[i];
-                                break;
-                            }
+                    if (strlen(plainFrag) == 1) {
+                        char first = 0;
+                        for (size_t i = 0; cand[i]; i++) {
+                            if (strchr(alph, cand[i])) { first = cand[i]; break; }
                         }
                         ok = (first == plainFrag[0]);
                     } else {
-                        ok = (strstr(cand, plainFrag)!=NULL);
+                        ok = (strstr(cand, plainFrag) != NULL);
                     }
                 }
 
-                if (ok) {
+                if (ok && !output) {
                     printf("[key %d,%d] %s\n", pos1, pos2, cand);
-                    if (!output) output = strdup(cand);
+                    output = strdup(cand);
                 }
                 free(cand);
             }
@@ -172,6 +154,5 @@ const char* enigmaEntry(const char* alph, const char* encText, const char* frag)
 
     if (!output) output = strdup("[no match]");
     if (plainFrag) free(plainFrag);
-    return output;
+    return output;  // caller must free this
 }
-

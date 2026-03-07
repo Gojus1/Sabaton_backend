@@ -132,7 +132,7 @@ const char* shamirEntryMem(const char* alph_str,
                            const char* frag)
 {
     (void)encText;
-    if (!alph_str || !*alph_str) return "[no alph]";
+    if (!alph_str || !*alph_str) return strdup("[no alph]");
 
     const char* alph[64];
     size_t alph_len = 0;
@@ -186,8 +186,17 @@ const char* shamirEntryMem(const char* alph_str,
 
     decode_backtrack_mem(numbuf, strlen(numbuf), 0, alph, alph_len, outbuf, 0, results, &result_count, 1000);
 
-    // Join all results into one string
-    static char final[8192];
+    // Compute total size for final string
+    size_t total_len = 0;
+    for (size_t i = 0; i < result_count; ++i) total_len += strlen(results[i]) + 1;
+
+    char* final = malloc(total_len + 1);
+    if (!final) {
+        for (size_t i = 0; i < result_count; ++i) free(results[i]);
+        for (size_t i = 0; i < alph_len; ++i) free((void*)alph[i]);
+        return strdup("[memory error]");
+    }
+
     final[0] = '\0';
     for (size_t i = 0; i < result_count; ++i) {
         strcat(final, results[i]);
@@ -197,5 +206,5 @@ const char* shamirEntryMem(const char* alph_str,
 
     for (size_t i = 0; i < alph_len; ++i) free((void*)alph[i]);
 
-    return final;
+    return final; // caller must free
 }

@@ -10,4 +10,4 @@
 #include "../../util/bigint.h"
 
 
-const char* rabinEntry(const char* alph, const char* encText, const char* frag);
+char* rabinEntry(const char* alph, const char* encText, const char* frag);

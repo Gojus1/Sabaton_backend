@@ -113,7 +113,14 @@ static void write_candidate(FILE* f, uint8_t taps, uint8_t state, int variant_id
     fprintf(f, ") variant=sr:%d,msb:%d,rev:%d => %s\n", shift_right, msb_first, rev_taps, s ? s : "");
 }
 
+static char* result_out = NULL;
+
 const char* streamEntry(const char* alph, const char* encText, const char* frag) {
+    if (result_out) {
+        free(result_out);
+        result_out = NULL;
+    }
+
     if (!encText) return strdup("[no input]");
     if (!frag || !*frag) return strdup("[no frag provided]");
 
@@ -144,9 +151,6 @@ const char* streamEntry(const char* alph, const char* encText, const char* frag)
     const char* known_prefix = (tok2 && *tok2 && strcmp(tok2, "brute") != 0) ? tok2 : NULL;
     const char* allowed_alph = (alph && *alph) ? alph : "ABCDEFGHIJKLMNOPQRSTUVWXYZ ";
 
-    static char* result_out = NULL;
-    if (result_out) { free(result_out); result_out = NULL; }
-
     char* found_any = NULL;
 
     // brute-force all variants (no file)
@@ -167,7 +171,9 @@ const char* streamEntry(const char* alph, const char* encText, const char* frag)
 
                         if (ok && (!known_prefix || 
                                    (strncmp(dec, known_prefix, strlen(known_prefix)) == 0))) {
-                            found_any = dec; // keep pointer
+                            // directly assign dec to result_out
+                            result_out = dec;
+                            found_any = result_out;
                         } else {
                             free(dec);
                         }
@@ -180,7 +186,5 @@ const char* streamEntry(const char* alph, const char* encText, const char* frag)
     free(cbytes);
     if (!found_any) return strdup("[no candidate found]");
 
-    result_out = strdup(found_any);
-    free(found_any);
     return result_out;
 }
