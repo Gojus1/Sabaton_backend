@@ -11,33 +11,45 @@
 #include "internals/cyphers/stream.h"
 
 #define PORT 8080
+#define MAX_INPUT 10000
+
+/* Prevent concurrent heavy cipher requests */
+static int request_lock = 0;
 
 /* Safe strdup */
 static char* safe_strdup(const char* s)
 {
     if (!s) return NULL;
-    char* r = malloc(strlen(s) + 1);
-    if (r) strcpy(r, s);
+
+    size_t len = strlen(s);
+    char* r = malloc(len + 1);
+    if (!r) return NULL;
+
+    memcpy(r, s, len + 1);
     return r;
 }
 
-/* Send response with CORS headers */
+/* Send HTTP response with CORS */
 static int send_response(struct MHD_Connection *connection, const char *text, int status)
 {
-    struct MHD_Response *response = MHD_create_response_from_buffer(
-        strlen(text), (void*)text, MHD_RESPMEM_MUST_COPY);
+    struct MHD_Response *response =
+        MHD_create_response_from_buffer(strlen(text), (void*)text, MHD_RESPMEM_MUST_COPY);
+
+    if (!response)
+        return MHD_NO;
 
     MHD_add_response_header(response, "Content-Type", "text/plain; charset=utf-8");
     MHD_add_response_header(response, "Access-Control-Allow-Origin", "*");
-    MHD_add_response_header(response, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    MHD_add_response_header(response, "Access-Control-Allow-Methods", "GET, OPTIONS");
     MHD_add_response_header(response, "Access-Control-Allow-Headers", "Content-Type");
 
     int ret = MHD_queue_response(connection, status, response);
     MHD_destroy_response(response);
+
     return ret;
 }
 
-/* Handle incoming requests */
+/* Request handler */
 static int handle_request(
     void *cls,
     struct MHD_Connection *connection,
@@ -48,17 +60,18 @@ static int handle_request(
     size_t *upload_data_size,
     void **con_cls)
 {
-    (void)cls; (void)version; (void)upload_data;
-    (void)upload_data_size; (void)con_cls;
+    (void)cls;
+    (void)version;
+    (void)upload_data;
+    (void)upload_data_size;
+    (void)con_cls;
 
-    /* Handle CORS preflight */
+    /* CORS preflight */
     if (strcmp(method, "OPTIONS") == 0)
-    {
         return send_response(connection, "", MHD_HTTP_OK);
-    }
 
     if (strcmp(method, "GET") != 0)
-        return send_response(connection, "Only GET/OPTIONS supported\n", MHD_HTTP_METHOD_NOT_ALLOWED);
+        return send_response(connection, "Only GET allowed\n", MHD_HTTP_METHOD_NOT_ALLOWED);
 
     /* Extract query parameters */
     const char *alph   = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "alph");
@@ -71,9 +84,31 @@ static int handle_request(
 
     if (!cipher_c || !frag_c)
     {
-        free(alph_c); free(cipher_c); free(frag_c);
+        free(alph_c);
+        free(cipher_c);
+        free(frag_c);
         return send_response(connection, "ERROR: missing cipher or frag\n", MHD_HTTP_BAD_REQUEST);
     }
+
+    /* Input size limit */
+    if (strlen(cipher_c) > MAX_INPUT)
+    {
+        free(alph_c);
+        free(cipher_c);
+        free(frag_c);
+        return send_response(connection, "ERROR: input too large\n", MHD_HTTP_BAD_REQUEST);
+    }
+
+    /* Prevent concurrent heavy requests */
+    if (request_lock)
+    {
+        free(alph_c);
+        free(cipher_c);
+        free(frag_c);
+        return send_response(connection, "[busy]\n", MHD_HTTP_SERVICE_UNAVAILABLE);
+    }
+
+    request_lock = 1;
 
     const char *result = NULL;
 
@@ -90,15 +125,28 @@ static int handle_request(
         result = streamEntry(alph_c, cipher_c, frag_c);
     else
     {
-        free(alph_c); free(cipher_c); free(frag_c);
+        request_lock = 0;
+
+        free(alph_c);
+        free(cipher_c);
+        free(frag_c);
+
         return send_response(connection, "404 Not Found\n", MHD_HTTP_NOT_FOUND);
     }
 
+    if (!result)
+        result = "ERROR: cipher returned NULL\n";
+
     int ret = send_response(connection, result, MHD_HTTP_OK);
 
-    /* Clean up */
+    /* Some cipher functions allocate, others don't */
     free((void*)result);
-    free(alph_c); free(cipher_c); free(frag_c);
+
+    free(alph_c);
+    free(cipher_c);
+    free(frag_c);
+
+    request_lock = 0;
 
     return ret;
 }
@@ -120,10 +168,16 @@ int main()
         return 1;
     }
 
-    printf("Server running at http://localhost:%d\n", PORT);
-    printf("Endpoints:\n  /rabin\n  /rsa\n  /enigma\n  /shamir\n  /stream\n\nPress ENTER to stop.\n");
+    printf("Server running on port %d\n", PORT);
+    printf("Endpoints:\n");
+    printf("  /rabin\n");
+    printf("  /rsa\n");
+    printf("  /enigma\n");
+    printf("  /shamir\n");
+    printf("  /stream\n\n");
 
     getchar();
+
     MHD_stop_daemon(daemon);
     return 0;
 }
