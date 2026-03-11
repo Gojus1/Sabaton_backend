@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include <microhttpd.h>
+#include <pthread.h>
 
 #include "internals/cyphers/rabin.h"
 #include "internals/cyphers/rsa.h"
@@ -11,10 +13,9 @@
 #include "internals/cyphers/stream.h"
 
 #define PORT 8080
-#define MAX_INPUT 10000
+#define MAX_INPUT 512
 
-/* Prevent concurrent heavy cipher requests */
-static int request_lock = 0;
+static pthread_mutex_t request_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* Safe strdup */
 static char* safe_strdup(const char* s)
@@ -91,7 +92,7 @@ static int handle_request(
     }
 
     /* Input size limit */
-    if (strlen(cipher_c) > MAX_INPUT)
+    if (strlen(cipher_c) > MAX_INPUT || strlen(frag_c) > MAX_INPUT || (alph_c && strlen(alph_c) > MAX_INPUT))
     {
         free(alph_c);
         free(cipher_c);
@@ -99,8 +100,7 @@ static int handle_request(
         return send_response(connection, "ERROR: input too large\n", MHD_HTTP_BAD_REQUEST);
     }
 
-    /* Prevent concurrent heavy requests */
-    if (request_lock)
+    if (pthread_mutex_trylock(&request_mutex) != 0)
     {
         free(alph_c);
         free(cipher_c);
@@ -108,25 +108,29 @@ static int handle_request(
         return send_response(connection, "[busy]\n", MHD_HTTP_SERVICE_UNAVAILABLE);
     }
 
-    request_lock = 1;
-
-    const char *result = NULL;
+    char *result = NULL;
+    bool is_allocated = false;
 
     /* Routing */
-    if (strcmp(url, "/rabin") == 0)
+    if (strcmp(url, "/rabin") == 0){
         result = rabinEntry(alph_c, cipher_c, frag_c);
-    else if (strcmp(url, "/rsa") == 0)
+        is_allocated = true;}
+    else if (strcmp(url, "/rsa") == 0){
         result = rsaEntry(alph_c, cipher_c, frag_c);
-    else if (strcmp(url, "/enigma") == 0)
+        is_allocated = true;}
+    else if (strcmp(url, "/enigma") == 0){
         result = enigmaEntry(alph_c, cipher_c, frag_c);
-    else if (strcmp(url, "/shamir") == 0)
+        is_allocated = true;}
+    else if (strcmp(url, "/shamir") == 0){
         result = shamirEntryMem(alph_c, cipher_c, frag_c);
-    else if (strcmp(url, "/stream") == 0)
+        is_allocated = true;}
+    else if (strcmp(url, "/stream") == 0){
         result = streamEntry(alph_c, cipher_c, frag_c);
+        is_allocated = true;}
     else
     {
-        request_lock = 0;
-
+        pthread_mutex_unlock(&request_mutex);
+        
         free(alph_c);
         free(cipher_c);
         free(frag_c);
@@ -134,19 +138,20 @@ static int handle_request(
         return send_response(connection, "404 Not Found\n", MHD_HTTP_NOT_FOUND);
     }
 
-    if (!result)
+    if (!result){
         result = "ERROR: cipher returned NULL\n";
-
+        is_allocated = false;
+    }
     int ret = send_response(connection, result, MHD_HTTP_OK);
 
-    /* Some cipher functions allocate, others don't */
-    free((void*)result);
+    
+    if (is_allocated) free((void*)result);
 
     free(alph_c);
     free(cipher_c);
     free(frag_c);
 
-    request_lock = 0;
+    pthread_mutex_unlock(&request_mutex);
 
     return ret;
 }
@@ -160,6 +165,10 @@ int main()
         PORT,
         NULL, NULL,
         &handle_request, NULL,
+
+        MHD_OPTION_CONNECTION_LIMIT, 20,
+        MHD_OPTION_CONNECTION_TIMEOUT, 5,
+
         MHD_OPTION_END);
 
     if (!daemon)
