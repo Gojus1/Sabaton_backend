@@ -40,7 +40,7 @@ static int send_response(struct MHD_Connection *connection, const char *text, in
         return MHD_NO;
 
     MHD_add_response_header(response, "Content-Type", "text/plain; charset=utf-8");
-    MHD_add_response_header(response, "Access-Control-Allow-Origin", "http://whatsecret.org");
+    MHD_add_response_header(response, "Access-Control-Allow-Origin", "https://whatsecret.org");
     MHD_add_response_header(response, "Access-Control-Allow-Methods", "GET, OPTIONS");
     MHD_add_response_header(response, "Access-Control-Allow-Headers", "Content-Type");
 
