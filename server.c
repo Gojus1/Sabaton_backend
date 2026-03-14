@@ -13,11 +13,11 @@
 #include "internals/cyphers/stream.h"
 
 #define PORT 8080
-#define MAX_INPUT 512
+#define MAX_INPUT 256
+#define MAX_ALPH 64
 
 static pthread_mutex_t request_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-/* Safe strdup */
 static char* safe_strdup(const char* s)
 {
     if (!s) return NULL;
@@ -30,7 +30,32 @@ static char* safe_strdup(const char* s)
     return r;
 }
 
-/* Send HTTP response with CORS */
+static int contains_forbidden_symbols(const char *s)
+{
+    if (!s) return 0;
+
+    for (; *s; s++)
+    {
+        switch (*s)
+        {
+            case '\'':
+            case '"':
+            case '\\':
+            case '%':
+            case '$':
+            case '`':
+            case '<':
+            case '>':
+            case ';':
+            case '|':
+            case '&':
+                return 1;
+        }
+    }
+
+    return 0;
+}
+
 static int send_response(struct MHD_Connection *connection, const char *text, int status)
 {
     struct MHD_Response *response =
@@ -50,7 +75,6 @@ static int send_response(struct MHD_Connection *connection, const char *text, in
     return ret;
 }
 
-/* Request handler */
 static int handle_request(
     void *cls,
     struct MHD_Connection *connection,
@@ -67,14 +91,12 @@ static int handle_request(
     (void)upload_data_size;
     (void)con_cls;
 
-    /* CORS preflight */
     if (strcmp(method, "OPTIONS") == 0)
         return send_response(connection, "", MHD_HTTP_OK);
 
     if (strcmp(method, "GET") != 0)
         return send_response(connection, "Only GET allowed\n", MHD_HTTP_METHOD_NOT_ALLOWED);
 
-    /* Extract query parameters */
     const char *alph   = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "alph");
     const char *cipher = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "cipher");
     const char *frag   = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "frag");
@@ -91,13 +113,21 @@ static int handle_request(
         return send_response(connection, "ERROR: missing cipher or frag\n", MHD_HTTP_BAD_REQUEST);
     }
 
-    /* Input size limit */
-    if (strlen(cipher_c) > MAX_INPUT || strlen(frag_c) > MAX_INPUT || (alph_c && strlen(alph_c) > MAX_INPUT))
+    if (strlen(cipher_c) > MAX_INPUT || strlen(frag_c) > MAX_INPUT || (alph_c && strlen(alph_c) > MAX_ALPH))
     {
         free(alph_c);
         free(cipher_c);
         free(frag_c);
         return send_response(connection, "ERROR: input too large\n", MHD_HTTP_BAD_REQUEST);
+    }
+
+    if (contains_forbidden_symbols(cipher_c) || contains_forbidden_symbols(frag_c) || (alph_c && contains_forbidden_symbols(alph_c)))
+    {
+        free(alph_c);
+        free(cipher_c);
+        free(frag_c);
+
+        return send_response(connection, "ERROR: forbidden symbols found\n", MHD_HTTP_BAD_REQUEST);
     }
 
     if (pthread_mutex_trylock(&request_mutex) != 0)
@@ -111,7 +141,7 @@ static int handle_request(
     char *result = NULL;
     bool is_allocated = false;
 
-    /* Routing */
+    // Routing
     if (strcmp(url, "/rabin") == 0){
         result = rabinEntry(alph_c, cipher_c, frag_c);
         is_allocated = true;}
@@ -167,7 +197,7 @@ int main()
         &handle_request, NULL,
 
         MHD_OPTION_CONNECTION_LIMIT, 20,
-        MHD_OPTION_CONNECTION_TIMEOUT, 5,
+        MHD_OPTION_CONNECTION_TIMEOUT, 8,
 
         MHD_OPTION_END);
 
