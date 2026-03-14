@@ -157,7 +157,7 @@ const char* enigmaEntry(const char* alph, const char* encText, const char* frag)
     if (frag)
     {
         char* copy = strdup(frag);
-        char* part = strtok(copy, "|");
+        char* part = strtok(copy, ",");
 
         while (part)
         {
@@ -181,7 +181,7 @@ const char* enigmaEntry(const char* alph, const char* encText, const char* frag)
             else if (strncmp(part,"PLAIN:",6)==0)
                 plainFrag=strdup(part+6);
 
-            part=strtok(NULL,"|");
+            part=strtok(NULL,",");
         }
 
         free(copy);

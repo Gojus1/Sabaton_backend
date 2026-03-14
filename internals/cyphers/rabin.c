@@ -181,9 +181,9 @@ char* rabinEntry(const char* alph,
     if (!tmp)
         return strdup("ERROR: out of memory");
 
-    char* c_str = strtok(tmp, "|");
-    char* p_str = strtok(NULL, "|");
-    char* q_str = strtok(NULL, "|");
+    char* c_str = strtok(tmp, ",");
+    char* p_str = strtok(NULL, ",");
+    char* q_str = strtok(NULL, ",");
 
     if (!c_str || !p_str || !q_str)
     {

@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdint.h>
 
-#define MAX_CIPHERTEXT 4096
+#define MAX_CIPHERTEXT 256
 
 /* Reverse 8-bit integer bit order */
 static uint8_t reverse_bits8(uint8_t x){

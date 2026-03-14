@@ -191,7 +191,7 @@ const char* shamirEntryMem(const char* alph_str,
         char* copy = strdup(frag);
         if (!copy) return strdup("[memory error]");
 
-        char* part = strtok(copy, "|");
+        char* part = strtok(copy, ",");
         int stage = 0;
 
         while (part && stage < 3)
