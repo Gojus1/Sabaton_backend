@@ -4,7 +4,7 @@
 #include <string.h>
 #include <limits.h>
 
-#define MAX_INPUT 8192
+#define MAX_INPUT_RSA 256
 
 /* ---------------- safe helpers ---------------- */
 
@@ -117,7 +117,7 @@ const char* rsaDecryption(const char* alph,const FragMap* vars,const char* encTe
     if(!vars || vars->count<3)
         return strdup("RSA error: need n,e,d");
 
-    if(!encText || strlen(encText)>MAX_INPUT)
+    if(!encText || strlen(encText)>MAX_INPUT_RSA)
         return strdup("RSA error: invalid ciphertext");
 
     const char* n_str = vars->items[0].value;
@@ -260,7 +260,7 @@ const char* rsaEntry(const char* alph,const char* encText,const char* frag)
     if(!encText)
         return strdup("[RSA: missing ciphertext]");
 
-    if(strlen(encText)>MAX_INPUT)
+    if(strlen(encText)>MAX_INPUT_RSA)
         return strdup("[RSA: ciphertext too large]");
 
     char* copy=strdup(frag);
